@@ -19,56 +19,47 @@ class MainActivity : AppCompatActivity() {
         val tvResult = findViewById<TextView>(R.id.tvResult)
 
         btnFetch.setOnClickListener {
-            tvResult.text = "서버와 연결 중..."
+            tvResult.text = "서버 데이터 분석 중..."
 
             thread {
                 try {
-                    // 1. 서버 연결 (에뮬레이터에서 로컬 서버 접속 주소는 10.0.2.2)
                     val socket = Socket("10.0.2.2", 8080)
-                    socket.soTimeout = 5000 // 5초 동안 응답 없으면 타임아웃
+                    socket.soTimeout = 5000
 
-                    // 2. 데이터 읽기 (서버의 \n을 기다림)
                     val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
-                    val serverData = reader.readLine()
+
+                    var line: String?
+                    var jsonResponse = ""
+                    var isJsonStarted = false
+
+                    // 핵심: HTTP 헤더는 무시하고 '{'가 나오는 시점부터 읽기
+                    while (reader.readLine().also { line = it } != null) {
+                        val currentLine = line?.trim() ?: ""
+                        if (currentLine.startsWith("{")) isJsonStarted = true
+                        if (isJsonStarted) jsonResponse += currentLine
+                    }
                     socket.close()
 
-                    if (!serverData.isNullOrBlank()) {
-                        // 3. JSON 파싱 (데이터 보따리 풀기)
-                        val jsonObject = JSONObject(serverData.trim())
+                    if (jsonResponse.isNotEmpty()) {
+                        val jsonObject = JSONObject(jsonResponse)
                         val booksArray = jsonObject.getJSONArray("books")
 
                         val displayText = StringBuilder()
-                        displayText.append("📚 현재 도서 대출 목록\n")
-                        displayText.append("━━━━━━━━━━━━━━━━━━\n\n")
+                        displayText.append("📚 도서 대출 현황\n━━━━━━━━━━\n\n")
 
                         for (i in 0 until booksArray.length()) {
                             val book = booksArray.getJSONObject(i)
-                            val id = book.getInt("id")
                             val title = book.getString("title")
                             val author = book.getString("author")
                             val available = if (book.getInt("available") == 1) "대출 가능" else "대출 중"
 
-                            displayText.append("$id. $title\n")
-                            displayText.append("   - 저자: $author\n")
-                            displayText.append("   - 상태: [$available]\n\n")
+                            displayText.append("${i+1}. $title\n   - 저자: $author\n   - 상태: [$available]\n\n")
                         }
 
-                        // 4. 화면 업데이트 (UI 스레드에서 실행)
-                        runOnUiThread {
-                            tvResult.text = displayText.toString()
-                        }
-                    } else {
-                        runOnUiThread {
-                            tvResult.text = "오류: 서버로부터 빈 데이터를 받았습니다."
-                        }
+                        runOnUiThread { tvResult.text = displayText.toString() }
                     }
-
                 } catch (e: Exception) {
-                    runOnUiThread {
-                        // 에러 발생 시 상세 메시지 출력
-                        tvResult.text = "연결 실패: ${e.localizedMessage}\n(서버가 켜져 있는지 확인하세요!)"
-                    }
-                    e.printStackTrace()
+                    runOnUiThread { tvResult.text = "오류 발생: ${e.localizedMessage}" }
                 }
             }
         }
